@@ -1,0 +1,135 @@
+WildCam ESP32-CAM aansluiting en flashen
+
+Aansluitschema inclusief CP2102 USB-naar-TTL/UART-adapter
+
+Implementatieontwerp • v1.0 • 21 september 2026
+
+1. Doel
+
+Dit document beschrijft de aansluiting van de klassieke
+AI-Thinker-achtige ESP32-CAM voor WildCam op een CP2102
+USB-naar-TTL/UART-adapter, inclusief programmeren, voeding en normaal
+bedrijf. Voor v1 is geen SD-kaart nodig.
+
+2. Elektrische uitgangspunten
+
+-   Voed de ESP32-CAM via de 5V-pin; de onboard regelaar maakt 3,3 V.
+-   UART-logica moet 3,3 V TTL-compatibel zijn.
+-   Voed de ESP32-CAM niet uit de 3,3V-uitgang van de CP2102; camera en
+    WiFi veroorzaken stroompieken.
+-   Als de 5V/VBUS-pin van de CP2102 rechtstreeks USB-5V levert en
+    voldoende stroom kan leveren, mag die op de werkbank de 5V-pin
+    voeden. Bij twijfel: aparte gestabiliseerde 5V-voeding van minimaal
+    circa 1 A en gemeenschappelijke GND.
+-   Verbind een externe 5V-voeding niet tegelijk met de 5V-uitgang van
+    de adapter tenzij de voedingsopzet daar expliciet voor is ontworpen.
+    # 3. Aansluitingen voor programmeren
+
+  CP2102      ESP32-CAM      Functie
+  ----------- -------------- -------------------------------------------------------
+  5V / VBUS   5V             Werkbankvoeding indien adapter/kabel voldoende levert
+  GND         GND            Gemeenschappelijke massa
+  TXD         U0R / GPIO3    Adapter TX -> ESP32 RX
+  RXD         U0T / GPIO1    Adapter RX <- ESP32 TX
+  —           GPIO0 -> GND   Tijdelijke jumper om seriële bootloader te kiezen
+
+4. Schema
+
+    PC USB
+      |
+      v
+    +------------------+                       +----------------------+
+    | CP2102 USB-UART  |                       | ESP32-CAM            |
+    |                  |                       |                      |
+    | 5V/VBUS ----------+----------------------> 5V                   |
+    | GND  -------------+----------------------> GND                  |
+    | TXD  -------------+----------------------> U0R / GPIO3          |
+    | RXD  <------------+----------------------- U0T / GPIO1          |
+    +------------------+                       |                      |
+                                               | GPIO0 ---- jumper ---+
+                                               |             naar GND |
+                                               +----------------------+
+
+    ALLEEN FLASHEN: GPIO0 aan GND tijdens reset/inschakelen.
+    NORMAAL BOOTEN: GPIO0 los van GND en daarna reset/power-cycle.
+
+5. Variant met aparte voeding
+
+    +5 V gestabiliseerd (>=1 A) ------> ESP32-CAM 5V
+    Voeding GND ------------------------+-----> ESP32-CAM GND
+                                        |
+    CP2102 GND -------------------------+
+    CP2102 TXD -------------------------------> U0R
+    CP2102 RXD <------------------------------- U0T
+
+    CP2102 5V/VBUS in deze variant NIET aansluiten.
+
+6. Flashprocedure
+
+1.  Schakel voeding/USB uit. Verbind TXD->U0R, RXD->U0T en GND->GND.
+2.  Verbind GPIO0 met GND.
+3.  Sluit 5V/USB aan.
+4.  Selecteer AI Thinker ESP32-CAM in PlatformIO/Arduino en begin
+    conservatief met 115200 baud uploadsnelheid.
+5.  Als de uploader wacht op verbinding: druk eenmaal op reset terwijl
+    GPIO0 nog aan GND ligt.
+6.  Na succesvolle upload: voeding uit.
+7.  Verwijder de GPIO0-GND-jumper.
+8.  Voeding weer aan. De WildCam-firmware start nu normaal.
+9.  Open de seriële monitor op 115200 baud voor camera-ID, IP en
+    diagnose. # 7. Normale aansluiting in het veld
+
+    5 V voeding  ----> ESP32-CAM 5V
+    GND           ----> ESP32-CAM GND
+
+    GPIO0: los laten voor normaal booten.
+    U0R/U0T: optioneel beschikbaar als service/debug-header.
+    CP2102: niet nodig tijdens normaal bedrijf.
+
+8. Pinconflicten
+
+De ESP32-CAM heeft weinig vrije GPIO’s. De camera gebruikt al veel
+pinnen. De microSD-interface deelt op veel AI-Thinker-borden GPIO2, 4,
+12, 13, 14 en 15. V1 gebruikt geen SD; wijs deze pinnen later niet
+zomaar toe zonder de exacte boarddefinitie te controleren. De witte
+onboard flits-LED zit doorgaans op GPIO4 en deelt daarmee een
+SD-functie.
+
+9. Voedingsbetrouwbaarheid
+
+-   Gebruik tijdens flashen een korte, goede USB-kabel.
+-   Gebruik in het veld een gestabiliseerde 5V-voeding met marge; 1 A of
+    meer is praktisch.
+-   Brownout-resets tijdens WiFi-transmissie wijzen meestal op
+    spanningsval in voeding/kabel.
+-   Bij langere laagspanningskabels voldoende aderdoorsnede gebruiken.
+-   ESP32-CAM en CP2102 zijn niet weerbestendig; monteer droog en met
+    trekontlasting. # 10. Problemen oplossen
+
+  --------------------------------------------------------------------------
+  Probleem                            Waarschijnlijke oorzaak / actie
+  ----------------------------------- --------------------------------------
+  Failed to connect / packet header   GPIO0 niet laag bij reset; TX/RX
+                                      kruisen; reset indrukken
+
+  Onleesbare seriële tekst            Verkeerde baudrate; WildCam gebruikt
+                                      115200
+
+  Herhaalde brownout/reset            5V-voeding of kabel te zwak
+
+  Camera init faalt                   Boardselectie/pinmap/ribbonconnector
+                                      controleren
+
+  Blijft in downloader                GPIO0 zit nog aan GND
+
+  Geen seriële output                 GND, U0T->RXD, voeding en juiste
+                                      COM-poort controleren
+  --------------------------------------------------------------------------
+
+11. Deliverables voor Codex
+
+-   README met deze aansluittabel en flashprocedure.
+-   platformio.ini met correcte ESP32-CAM target en 115200 seriële
+    monitor.
+-   camera_pins.h met expliciete AI-Thinker camera-pinmapping.
+-   Na deployment geen afhankelijkheid van de CP2102.

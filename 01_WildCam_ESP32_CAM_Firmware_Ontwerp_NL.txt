@@ -1,0 +1,281 @@
+WildCam ESP32-CAM firmware
+
+Softwareontwerp voor wildcam1, wildcam2, …
+
+Implementatieontwerp • v1.0 • 21 september 2026
+
+1. Doel en afbakening
+
+Dit document specificeert de firmware voor klassieke AI-Thinker-achtige
+ESP32-CAM-borden met OV2640-camera en PSRAM. Iedere camera krijgt een
+vaste ID, bijvoorbeeld wildcam1 of wildcam2. De firmware detecteert
+lokaal dat een object de ingestelde Region of Interest (ROI) binnenkomt,
+maakt JPEG-opnamen en stuurt events naar de WildCam-backend op shoebox.
+Herkenning van ratten, muizen, katten of andere dieren op de server valt
+buiten v1, maar het protocol en datamodel worden daar nu al op
+voorbereid.
+
+2. Ontwerpprincipes
+
+-   Detectie gebeurt lokaal en lichtgewicht; geen AI-inferentie op de
+    ESP32.
+-   Veranderend buitenlicht mag niet voortdurend triggeren. Daarom
+    gebruiken we frame-tot-frame verandering, ruimtelijke samenhang en
+    onderdrukking van globale helderheidsveranderingen.
+-   Beeldopname mag nooit afhankelijk zijn van netwerklatentie. Uploaden
+    draait onafhankelijk van camera en detectie.
+-   Zonder SD-kaart is PSRAM een begrensde best-effort wachtrij. Bij een
+    volle buffer telt de firmware verloren frames, maar blokkeert de
+    camera niet.
+-   Livebeeld is beschikbaar voor montage en uitrichten, maar is niet
+    nodig tijdens normaal bedrijf.
+-   Verschillen tussen camera’s zijn configuratie, geen aparte
+    firmwarevarianten. # 3. Platform en build
+
+  -----------------------------------------------------------------------
+  Onderdeel                           Keuze
+  ----------------------------------- -----------------------------------
+  Bord                                ESP32-CAM, AI-Thinker pinout,
+                                      OV2640, naar verwachting 4 MB PSRAM
+
+  Framework                           Arduino framework voor ESP32
+
+  Buildsysteem                        Bij voorkeur PlatformIO; Arduino
+                                      IDE blijft mogelijk
+
+  Netwerk                             2,4 GHz WiFi, DHCP; mDNS-hostnaam
+                                      .local
+
+  Configuratie                        NVS/Preferences; PSRAM voor
+                                      tijdelijke JPEG-wachtrij
+
+  Transport                           HTTP/1.1 op LAN, binaire
+                                      JPEG-POSTs, korte time-outs en
+                                      retry
+
+  Tijd                                NTP indien beschikbaar; event-ID
+                                      mag niet afhankelijk zijn van
+                                      correcte kloktijd
+  -----------------------------------------------------------------------
+
+4. Repository-indeling
+
+    wildcam-firmware/
+      platformio.ini
+      include/
+        config.h
+        camera_pins.h
+        types.h
+      src/
+        main.cpp
+        camera.cpp/.h
+        motion.cpp/.h
+        capture.cpp/.h
+        uploader.cpp/.h
+        webui.cpp/.h
+        settings.cpp/.h
+        status.cpp/.h
+      data/index.html
+      test/test_motion/
+      README.md
+
+5. Runtime-architectuur
+
+    Cameraframes
+       |
+       +--> DETECTIEMODUS: lage resolutie
+       |      -> ROI-blokstatistiek
+       |      -> vergelijking met vorig frame
+       |      -> trigger-state-machine
+       |
+       +--> EVENTMODUS: JPEG-opname
+              -> kopie naar PSRAM-wachtrij
+              -> cameraframebuffer direct vrijgeven
+
+    PSRAM-wachtrij ---> uploadtaak ---> shoebox /api/v1/frames
+                             |
+                             +-- retry/backoff bij fout
+
+    Lokale webserver voor setup/livebeeld draait onafhankelijk.
+
+Gebruik FreeRTOS-taken en queues. De uploadtaak mag een blokkerende
+HTTP-call doen binnen zijn eigen taak, maar mag nooit de
+cameraframebuffer vasthouden of de detectietaak blokkeren.
+
+6. Identiteit en configuratie
+
+  -----------------------------------------------------------------------
+  Sleutel                 Voorbeeld               Betekenis
+  ----------------------- ----------------------- -----------------------
+  camera_id               wildcam1                Unieke logische ID;
+                                                  patroon
+                                                  ^wildcam[1-9][0-9]*$
+
+  hostname                wildcam1                Standaard gelijk aan
+                                                  camera_id
+
+  wifi_ssid /             …                       In NVS; wachtwoord
+  wifi_password                                   nooit via status-API
+                                                  teruggeven
+
+  backend_url             http://shoebox:8088     Basis-URL
+
+  roi                     x,y,w,h                 Genormaliseerde
+                                                  coördinaten 0..1000
+
+  detect_fps              5                       Standaard 5
+                                                  detectieframes/s
+
+  trigger_frames          2 van 3                 Debounce
+
+  event_seconds           3.0                     Opnameduur na trigger
+
+  event_fps               3                       JPEG’s per seconde
+                                                  tijdens event
+
+  jpeg_framesize          SVGA                    Start met 800x600
+
+  jpeg_quality            12                      ESP32-camera
+                                                  kwaliteitswaarde
+
+  motion_threshold        instelbaar              Drempel voor
+                                                  blokverandering
+
+  global_change_limit     instelbaar              Onderdruk globale
+                                                  lichtverandering
+
+  cooldown_ms             2000                    Voorkomt event-storm
+  -----------------------------------------------------------------------
+
+7. Bewegings-/objectdetectie
+
+1.  Neem ongeveer 5 keer per seconde een klein detectieframe en bereken
+    luminantie (Y) van bemonsterde pixels.
+2.  Beperk de analyse tot de ingestelde ROI.
+3.  Verdeel de ROI in blokken en bereken per blok de gemiddelde
+    luminantie.
+4.  Vergelijk ieder blok met hetzelfde blok in het vorige frame. Markeer
+    een blok als veranderd wanneer |Yt - Yt-1| boven de drempel komt.
+5.  Bepaal de globale helderheidsverandering met mediaan of trimmed mean
+    van de blokverschillen en compenseer deze common-mode verandering.
+6.  Verwerp een frame als waarschijnlijke lichtverandering wanneer een
+    te groot deel van de ROI tegelijk en in dezelfde richting verandert.
+7.  Eis een ruimtelijk aaneengesloten cluster én een trigger in 2 van 3
+    opeenvolgende vergelijkingen.
+8.  Ga daarna naar EVENTMODUS, maak gedurende event_seconds JPEG’s met
+    event_fps en keer na cooldown terug naar detectie. Gebruik in v1
+    geen vast achtergrondreferentiebeeld. Buiten is frame-tot-frame
+    vergelijking robuuster tegen bewolking, zon en schemering. Een
+    adaptief achtergrondmodel kan later worden toegevoegd.
+
+8. Event- en buffermodel
+
+Een event wordt uniek geïdentificeerd door (camera_id, boot_id,
+event_id). boot_id is een willekeurige 32-bit waarde per boot; event_id
+is een oplopende persistente teller.
+
+  Veld          Type                 Voorbeeld
+  ------------- -------------------- -----------------------------------
+  camera_id     string               wildcam1
+  boot_id       uint32 hex           7fa31c09
+  event_id      uint64               1842
+  frame_index   uint16               0..N-1
+  capture_ms    uint64               milliseconden sinds boot
+  captured_at   ISO-8601 optioneel   alleen bij gesynchroniseerde klok
+  rssi          int                  -72
+
+Een queue-entry bezit een eigen kopie van de JPEG in PSRAM. Begrens op
+totaal aantal bytes. Startwaarde: maximaal circa 2,0 MiB JPEG-data,
+zodat camera en WiFi voldoende geheugen overhouden. Als een nieuwe JPEG
+niet past: frame laten vallen, dropped_frames verhogen en doorgaan.
+
+9. Protocol naar backend
+
+    POST {backend_url}/api/v1/frames
+
+    Content-Type: image/jpeg
+    X-WildCam-ID: wildcam1
+    X-Boot-ID: 7fa31c09
+    X-Event-ID: 1842
+    X-Frame-Index: 2
+    X-Capture-Millis: 12345678
+    X-Captured-At: 2026-09-21T14:53:21.412+02:00
+    X-RSSI: -72
+    X-Firmware-Version: 1.0.0
+    X-Protocol-Version: 1
+
+Verwijder een frame pas uit de PSRAM-wachtrij na een 2xx-response. Retry
+netwerkfouten en 5xx met exponentiële backoff, bijvoorbeeld 1, 2, 5, 10,
+30 en maximaal 60 seconden. 4xx is een configuratie-/protocolfout en mag
+geen snelle retry-loop veroorzaken.
+
+10. Lokale webinterface
+
+  -----------------------------------------------------------------------
+  Endpoint                            Functie
+  ----------------------------------- -----------------------------------
+  GET /                               Status/setup, preview, ROI-overlay
+                                      en detectorwaarden
+
+  GET /snapshot.jpg                   Een JPEG
+
+  GET /stream                         MJPEG-livebeeld voor uitrichten
+
+  GET /api/status                     ID, IP, RSSI, uptime, queue, drops,
+                                      laatste trigger/backendstatus
+
+  GET /api/config                     Configuratie zonder WiFi-wachtwoord
+
+  POST /api/config                    Valideren en persistent opslaan
+
+  POST /api/reboot                    Herstart
+
+  POST /api/test-upload               Maak en upload één testbeeld
+  -----------------------------------------------------------------------
+
+Teken de ROI als overlay op het livebeeld. Gebruik genormaliseerde
+ROI-coördinaten zodat dezelfde rechthoek klopt bij detectie- en
+JPEG-resolutie. Tijdens streaming mag de detectiefrequentie tijdelijk
+lager worden.
+
+11. Toestanden en foutafhandeling
+
+    BOOT -> CAMERA_INIT -> WIFI_CONNECTING -> RUN
+    RUN:
+      DETECTING --trigger--> CAPTURING_EVENT --klaar--> COOLDOWN --> DETECTING
+      uploadtaak draait parallel
+      WiFi-uitval stopt detectie/opname niet
+
+-   Bij camerafout: duidelijke seriële diagnose en gecontroleerde
+    retry/herstart.
+-   Bij WiFi-uitval: detectie en opname gaan door totdat de begrensde
+    PSRAM-buffer vol is.
+-   Seriële logging op 115200 baud: bootreden, PSRAM, camera, WiFi/IP,
+    mDNS en backendfouten.
+-   Tel detections, events, frames_captured, frames_uploaded,
+    dropped_frames, upload_failures en camera_failures.
+-   Stuur bij voorkeur iedere 60 s een heartbeat naar /api/v1/heartbeat.
+    Een mislukte heartbeat is niet fataal. # 12. Voorbereiding op latere
+    AI
+
+De firmware kent geen diersoorten. Originele JPEG’s en stabiele
+event-/framemetadata blijven behouden. De backend kan later velden
+toevoegen als species, confidence, model_name en model_version zonder
+wijziging van het cameraprotocol.
+
+13. Acceptatiecriteria voor Codex
+
+-   wildcam1 en wildcam2 draaien dezelfde binary met verschillende
+    NVS-configuratie.
+-   Detectie blijft lopen terwijl een HTTP-upload blokkeert of time-out.
+-   Backend-uitval kan geen onbeperkt RAM gebruiken; verloren frames
+    worden geteld.
+-   Globale lichtverandering in de ROI triggert normaal niet; lokale
+    beweging wel.
+-   .local toont preview/livebeeld en zichtbare ROI.
+-   Testevent bereikt shoebox met correcte camera-, event- en
+    framemetadata.
+-   Na reboot ontstaan geen event-ID-collisies.
+-   WiFi-herstel gebeurt automatisch.
+-   Code is modulair en README bevat build-, flash- en
+    configuratiestappen.

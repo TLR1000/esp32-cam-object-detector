@@ -1,0 +1,347 @@
+WildCam backend op shoebox
+
+Ontwerp voor ingestie, opslag, webinterface en beheer
+
+Implementatieontwerp • v1.0 • 21 september 2026
+
+1. Doel
+
+De WildCam-backend ontvangt JPEG-frames van meerdere ESP32-CAM’s
+(wildcam1, wildcam2, …), slaat ze betrouwbaar op, registreert metadata
+en biedt een eenvoudige browserinterface voor bekijken en beheer. V1
+doet nog geen server-side herkenning van ratten, muizen, katten of
+andere dieren. De architectuur reserveert daarvoor wel een nette
+asynchrone uitbreidingsroute.
+
+2. Deployment-uitgangspunten
+
+  -----------------------------------------------------------------------
+  Onderdeel                           Keuze
+  ----------------------------------- -----------------------------------
+  Host                                Linux-server shoebox
+
+  Runtime                             Python 3.12+
+
+  Framework                           FastAPI + Uvicorn
+
+  Metadata                            SQLite in WAL-modus
+
+  Beelden                             Filesystem onder /opt/wildcam/data
+
+  Root                                /opt/wildcam
+
+  Luisterpoort                        0.0.0.0:8088 op vertrouwd LAN
+
+  Frontend                            Server-rendered HTML/Jinja2 +
+                                      kleine hoeveelheid vanilla
+                                      JavaScript
+
+  Reverse proxy                       Later optioneel; niet vereist voor
+                                      LAN-v1
+  -----------------------------------------------------------------------
+
+3. Repository-indeling
+
+    wildcam-backend/
+      pyproject.toml
+      README.md
+      wildcam/
+        main.py
+        config.py
+        db.py
+        models.py
+        ingest.py
+        storage.py
+        api.py
+        ui.py
+        schemas.py
+        housekeeping.py
+        templates/
+          base.html
+          dashboard.html
+          camera.html
+          event.html
+          admin.html
+        static/app.css
+        static/app.js
+      tests/
+        test_ingest.py
+        test_idempotency.py
+        test_storage.py
+        test_ui.py
+      deploy/
+        wildcam.service
+        wildcam.env.example
+
+4. Opslagstructuur
+
+    /opt/wildcam/
+      app/
+      data/
+        captures/
+          wildcam1/
+            2026/09/21/
+              7fa31c09_0000001842/
+                000.jpg
+                001.jpg
+                002.jpg
+          wildcam2/...
+        wildcam.sqlite3
+      logs/   # optioneel; journald mag ook
+
+Schrijf een upload eerst naar een tijdelijk bestand op hetzelfde
+filesystem, sluit/synchroniseer waar passend en rename daarna atomair
+naar de definitieve .jpg. Een 2xx-response betekent dat de backend het
+frame lokaal duurzaam heeft geaccepteerd.
+
+5. Datamodel
+
+  -----------------------------------------------------------------------
+  Tabel                               Belangrijkste velden
+  ----------------------------------- -----------------------------------
+  cameras                             camera_id PK, first_seen,
+                                      last_seen, last_ip, last_rssi,
+                                      firmware_version, last_boot_id,
+                                      status_json
+
+  events                              id PK, camera_id, boot_id,
+                                      event_id, first_capture_at,
+                                      last_capture_at, received_at,
+                                      frame_count, classification_status,
+                                      notes
+
+  frames                              id PK, event_fk, frame_index,
+                                      capture_ms, captured_at nullable,
+                                      received_at, relative_path, bytes,
+                                      sha256, rssi, width/height nullable
+
+  classifications (later)             id PK, frame/event FK, species,
+                                      confidence, model_name,
+                                      model_version, created_at, raw_json
+
+  settings                            key PK, value_json
+  -----------------------------------------------------------------------
+
+Maak een unieke constraint op (camera_id, boot_id, event_id,
+frame_index). Daardoor zijn retries idempotent en ontstaan geen dubbele
+frames.
+
+6. Ingestie-API
+
+6.1 POST /api/v1/frames
+
+Accepteer Content-Type image/jpeg plus de WildCam-headers uit het
+firmwaredocument. Valideer camera_id, numerieke velden, content-type en
+maximale bodygrootte (start met 1 MiB per JPEG). Stream naar disk en
+voorkom onbeperkte request-buffers.
+
+    201 Created
+    {"ok": true, "stored": true, "frame_id": 12345}
+
+    200 OK  # exacte retry
+    {"ok": true, "stored": false, "duplicate": true, "frame_id": 12345}
+
+    400/413/422
+    {"ok": false, "error": "..."}
+
+6.2 POST /api/v1/heartbeat
+
+Ontvang ongeveer iedere 60 seconden camerastatus en werk
+cameras.last_seen en operationele velden bij.
+
+    {
+      "camera_id": "wildcam1",
+      "boot_id": "7fa31c09",
+      "uptime_s": 12345,
+      "ip": "192.168.1.80",
+      "rssi": -72,
+      "queue_frames": 3,
+      "queue_bytes": 238112,
+      "dropped_frames": 0,
+      "upload_failures": 2,
+      "firmware_version": "1.0.0"
+    }
+
+6.3 Lees- en beheer-API
+
+  --------------------------------------------------------------------------------
+  Endpoint                                     Functie
+  -------------------------------------------- -----------------------------------
+  GET /api/v1/cameras                          Camera’s en online/offline-status
+
+  GET /api/v1/cameras/{id}                     Details en tellers
+
+  GET                                          Gepagineerde eventlijst
+  /api/v1/events?camera_id=&from=&to=&limit=
+
+  GET /api/v1/events/{id}                      Event + framemetadata
+
+  GET /api/v1/frames/{id}/image                JPEG serveren
+
+  PATCH /api/v1/events/{id}                    Notitie / later handmatige tags
+
+  DELETE /api/v1/events/{id}                   Verwijderen met expliciete
+                                               UI-bevestiging
+
+  GET /api/v1/health                           Proces-, database- en opslagstatus
+  --------------------------------------------------------------------------------
+
+7. Webinterface
+
+7.1 Dashboard /
+
+-   Camerakaarten met camera_id, online/offline, laatst gezien, RSSI,
+    firmware en queue/drop-tellers.
+
+-   Recente events over alle camera’s, nieuwste eerst, met thumbnail,
+    camera-ID, tijd en aantal frames.
+
+-   Filters op camera en datum.
+
+-   Opslagoverzicht met aantallen events/frames en schijfgebruik. ## 7.2
+    Camerapagina /cameras/{camera_id}
+
+-   Camerametadata en laatste heartbeat.
+
+-   Gemakslink naar bijvoorbeeld http://wildcam1.local/; backend mag
+    hiervan niet afhankelijk zijn.
+
+-   Chronologische eventgalerij.
+
+-   Waarschuwingen bij oude heartbeat, veel uploadfouten of dropped
+    frames. ## 7.3 Eventpagina /events/{id}
+
+-   Alle frames in volgorde met tijden en metadata.
+
+-   Grote viewer met vorige/volgende.
+
+-   Originele JPEG openen/downloaden.
+
+-   Beheernotitie en verwijderactie.
+
+-   Gereserveerd classificatiepaneel dat in v1 ‘Niet geclassificeerd’
+    toont. # 8. Online/offline
+
+Leid status af uit last_seen; sla online niet als waarheid op. Bij
+heartbeat iedere 60 s kan bijvoorbeeld na 180 s ‘offline/stale’ worden
+getoond. Toon altijd ook de werkelijke laatst-gezien-tijd.
+
+9. Beveiliging
+
+-   V1 is voor een vertrouwd LAN; poort 8088 niet rechtstreeks op
+    internet publiceren.
+
+-   Valideer camera-ID en headers; gebruik nooit ruwe headertekst direct
+    als filesystempad.
+
+-   Bij voorkeur per camera een ingest-token via Authorization: Bearer .
+
+-   Destructieve beheeracties vereisen minimaal een eenvoudige
+    admin-authenticatie als andere LAN-gebruikers toegang hebben.
+
+-   Serve bestanden alleen via database-ID/pathlookup en blokkeer
+    directory traversal. # 10. Betrouwbaarheid en concurrency
+
+-   SQLite WAL; transacties kort houden.
+
+-   Bestand eerst atomair opslaan, daarna metadata transactioneel
+    registreren; wees expliciet over cleanup/quarantaine bij DB-fout.
+
+-   Unieke constraint maakt retries veilig.
+
+-   Geen 2xx teruggeven voordat het beeld lokaal veilig is geaccepteerd.
+
+-   Request/body/time-limieten; één defecte camera mag andere camera’s
+    niet blokkeren.
+
+-   Gestructureerde logs met camera_id, boot_id, event_id en
+    frame_index. # 11. Haak voor toekomstige AI
+
+Na succesvolle ingestie kan intern een ‘frame/event opgeslagen’-job
+worden aangeboden. In v1 is dit een no-op. Later kan een worker YOLO of
+een andere classifier draaien. AI-resultaten staan los van de
+onveranderlijke capturemetadata.
+
+    class ClassificationService:
+        async def enqueue_event(self, event_db_id: int) -> None:
+            # v1: niets doen
+            # later: event naar AI-workerqueue sturen
+            ...
+
+Classificeer later bij voorkeur op eventniveau nadat alle frames binnen
+zijn of na een korte inactiviteitstime-out. Zo kan de server het
+scherpste frame kiezen en dubbele inferentie vermijden.
+
+12. Configuratie
+
+    WILDCAM_BIND=0.0.0.0
+    WILDCAM_PORT=8088
+    WILDCAM_DATA_DIR=/opt/wildcam/data
+    WILDCAM_DB=/opt/wildcam/data/wildcam.sqlite3
+    WILDCAM_MAX_JPEG_BYTES=1048576
+    WILDCAM_OFFLINE_AFTER_SECONDS=180
+    WILDCAM_ADMIN_SECRET=change-me
+    WILDCAM_LOG_LEVEL=INFO
+
+13. systemd
+
+Voor deze zelfstandige, altijd beschikbare ingestieservice is systemd
+passend.
+
+    [Unit]
+    Description=WildCam backend
+    After=network-online.target
+    Wants=network-online.target
+
+    [Service]
+    Type=simple
+    User=wildcam
+    Group=wildcam
+    WorkingDirectory=/opt/wildcam/app
+    EnvironmentFile=/etc/wildcam.env
+    ExecStart=/opt/wildcam/venv/bin/uvicorn wildcam.main:app --host 0.0.0.0 --port 8088
+    Restart=on-failure
+    RestartSec=3
+
+    [Install]
+    WantedBy=multi-user.target
+
+14. Tests voor Codex
+
+-   Geldige JPEG van wildcam1 opslaan en file + DB-record verifiëren.
+
+-   Exact hetzelfde frame opnieuw sturen: 200/idempotent, geen
+    duplicaat.
+
+-   Zelfde event/frame-nummers van wildcam2 blijven apart.
+
+-   Ongeldige camera-ID, niet-JPEG en te grote body weigeren.
+
+-   Gelijktijdige uploads van meerdere camera’s testen.
+
+-   Eventvolgorde en filters op camera/datum testen.
+
+-   Oude heartbeat leidt tot afgeleide offline-status.
+
+-   Delete verwijdert databasegegevens en bestanden consistent.
+
+-   Padconstructie kan nooit buiten capture-root komen.
+
+-   AI-tabellen/interfaces bestaan als uitbreidingspunt, maar v1 vereist
+    geen model of AI-package. # 15. Definition of Done
+
+-   wildcam1 en wildcam2 kunnen tegelijk uploaden.
+
+-   Beelden zijn per camera en event in de browser te bekijken.
+
+-   Backendrestart verliest geen beelden of metadata.
+
+-   Retries maken geen duplicaten.
+
+-   Dashboard toont camerahealth en recente captures.
+
+-   README bevat installatie, venv, configuratie, systemd, backup en
+    upgrade.
+
+-   Databaseschema is migratieklaar; Alembic aanbevolen voor latere
+    AI-uitbreidingen.
