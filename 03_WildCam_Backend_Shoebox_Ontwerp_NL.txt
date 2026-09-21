@@ -2,7 +2,10 @@ WildCam backend op shoebox
 
 Ontwerp voor ingestie, opslag, webinterface en beheer
 
-Implementatieontwerp • v1.0 • 21 september 2026
+Implementatieontwerp • v1.1 • 21 september 2026
+
+BOUWINSTRUCTIE.md is leidend voor gedeelde API-contracten, veldtypen,
+eventafsluiting, telemetrie en de taakverdeling met de webinterface.
 
 1. Doel
 
@@ -81,7 +84,7 @@ asynchrone uitbreidingsroute.
         captures/
           wildcam1/
             2026/09/21/
-              7fa31c09_0000001842/
+              7fa31c09000000000000000000000001_0000001842/
                 000.jpg
                 001.jpg
                 002.jpg
@@ -130,18 +133,19 @@ frames.
 
 6.1 POST /api/v1/frames
 
-Accepteer Content-Type image/jpeg plus de WildCam-headers uit het
-firmwaredocument. Valideer camera_id, numerieke velden, content-type en
-maximale bodygrootte (start met 1 MiB per JPEG). Stream naar disk en
+Accepteer Content-Type image/jpeg plus alle vereiste headers uit BOUWINSTRUCTIE.md. Valideer camera_id, numerieke velden, decodeerbare JPEG en
+maximale bodygrootte (1 MiB) en maximaal 2 miljoen pixels per JPEG. Stream naar disk en
 voorkom onbeperkte request-buffers.
 
     201 Created
-    {"ok": true, "stored": true, "frame_id": 12345}
+    {"ok": true, "stored": true, "frame_id": "12345"}
 
     200 OK  # exacte retry
-    {"ok": true, "stored": false, "duplicate": true, "frame_id": 12345}
+    {"ok": true, "stored": false, "duplicate": true, "frame_id": "12345"}
 
-    400/413/422
+    409 Conflict  # identiteit gelijk, inhoud of opnamemetadata anders
+
+    400/413/415/422
     {"ok": false, "error": "..."}
 
 6.2 POST /api/v1/heartbeat
@@ -151,7 +155,7 @@ cameras.last_seen en operationele velden bij.
 
     {
       "camera_id": "wildcam1",
-      "boot_id": "7fa31c09",
+      "boot_id": "7fa31c09000000000000000000000001",
       "uptime_s": 12345,
       "ip": "192.168.1.80",
       "rssi": -72,
@@ -268,8 +272,9 @@ onveranderlijke capturemetadata.
             # later: event naar AI-workerqueue sturen
             ...
 
-Classificeer later bij voorkeur op eventniveau nadat alle frames binnen
-zijn of na een korte inactiviteitstime-out. Zo kan de server het
+Classificeer later bij voorkeur op eventniveau na bevestigde delivery_complete. Een inactiviteitstime-out markeert
+het event uitsluitend als stale/incomplete; verwerking daarvan moet als
+onvolledig worden gelabeld. Zo kan de server het
 scherpste frame kiezen en dubbele inferentie vermijden.
 
 12. Configuratie
@@ -345,3 +350,29 @@ passend.
 
 -   Databaseschema is migratieklaar; Alembic aanbevolen voor latere
     AI-uitbreidingen.
+
+16. Eventafsluiting en contract versie 1.1
+
+Implementeer POST /api/v1/events/close volgens BOUWINSTRUCTIE.md. Bewaar
+capture_closed, delivery_complete, has_loss, stale/incomplete, expected
+uploaded_frames, selected_frames, dropped_frames, capture_failures,
+pretriggerdekking en previous_event_id. Ontvangen frames zijn de waarheid;
+een afsluiting kan vóór frames binnenkomen. Tijdelijk ontbrekende frames
+zijn niet hetzelfde als definitief verloren frames. Exacte herhaling is
+idempotent; afwijkende metadata geeft 409 zonder bestaande data te wijzigen.
+
+Boot-ID is 128-bit, 32 hextekens. Event-ID loopt per boot op. Encodeer
+uint64-ID's en monotone tijden als decimale strings in JSON; dit geldt ook
+voor database-ID's in responses. Clock_synced hoort bij opname, niet upload.
+Bewaar frame_phase en opnametijd naast ontvangen_at. Breid heartbeat en
+camera-/eventresponses uit met de contractvelden en ontbrekende metingen
+als null. UI toont verlies en onvolledigheid afzonderlijk van online-status.
+
+17. Aanvullende tests en samenwerking
+
+Gebruik gedeelde contractfixtures voor identiteit met afwijkende inhoud,
+afsluiting vóór/na frames, exacte herhaling, nul frames, ongesynchroniseerde
+klok en meerdere camera's. Test crashherstel tussen bestand-rename en
+databasecommit met reconciliatie van verweesde bestanden. Geen 2xx vóór
+duurzame opslag. Backend en webinterface gebruiken hetzelfde OpenAPI-contract.
+Voor resterende acceptatie en taakgrenzen geldt BOUWINSTRUCTIE.md.

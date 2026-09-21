@@ -2,7 +2,10 @@ WildCam ESP32-CAM firmware
 
 Softwareontwerp voor wildcam1, wildcam2, …
 
-Implementatieontwerp • v1.0 • 21 september 2026
+Implementatieontwerp • v1.1 • 21 september 2026
+
+Lees eerst BOUWINSTRUCTIE.md. Dat bestand bepaalt de gedeelde interfaces,
+het protocol en de meetbare acceptatiecriteria voor de parallelle taken.
 
 1. Doel en afbakening
 
@@ -81,26 +84,16 @@ voorbereid.
 
 5. Runtime-architectuur
 
-    Cameraframes
-       |
-       +--> DETECTIEMODUS: lage resolutie
-       |      -> ROI-blokstatistiek
-       |      -> vergelijking met vorig frame
-       |      -> trigger-state-machine
-       |
-       +--> EVENTMODUS: JPEG-opname
-              -> kopie naar PSRAM-wachtrij
-              -> cameraframebuffer direct vrijgeven
+Eén camera-eigenaar beheert alle drivercalls en sensorinstellingen.
+Detectie krijgt GrayFrameView volgens BOUWINSTRUCTIE.md. Netwerkconsumers
+krijgen eigen JPEG-kopieën uit begrensde pools; driverbuffers worden vóór
+netwerkverzending teruggegeven. Livebeeld mag frames overslaan en bevat
+maximaal één wachtend recent frame. Detectie heeft voorrang op preview
+of uploads. De camera-testsketch blijft een apart diagnoseprogramma.
 
-    PSRAM-wachtrij ---> uploadtaak ---> shoebox /api/v1/frames
-                             |
-                             +-- retry/backoff bij fout
-
-    Lokale webserver voor setup/livebeeld draait onafhankelijk.
-
-Gebruik FreeRTOS-taken en queues. De uploadtaak mag een blokkerende
-HTTP-call doen binnen zijn eigen taak, maar mag nooit de
-cameraframebuffer vasthouden of de detectietaak blokkeren.
+De hardwareproef vergelijkt JPEG verkleinen met sensor/resolutiewissels.
+Meet opnamefrequentie, analyseonderbreking, frameleeftijd en geheugen voordat
+de productieroute wordt gekozen. Zie de bouwinstructie voor het framecontract.
 
 6. Identiteit en configuratie
 
@@ -123,10 +116,10 @@ cameraframebuffer vasthouden of de detectietaak blokkeren.
   roi                     x,y,w,h                 Genormaliseerde
                                                   coördinaten 0..1000
 
-  detect_fps              5                       Standaard 5
+  detect_fps              10                       Startdoel 10
                                                   detectieframes/s
 
-  trigger_frames          2 van 3                 Debounce
+  confirmation_window_ms  meetbaar                 Tijdbevestiging
 
   event_seconds           3.0                     Opnameduur na trigger
 
@@ -144,12 +137,12 @@ cameraframebuffer vasthouden of de detectietaak blokkeren.
   global_change_limit     instelbaar              Onderdruk globale
                                                   lichtverandering
 
-  cooldown_ms             2000                    Voorkomt event-storm
+  max_event_seconds       30                    Aansluitend event bij beweging
   -----------------------------------------------------------------------
 
 7. Bewegings-/objectdetectie
 
-1.  Neem ongeveer 5 keer per seconde een klein detectieframe en bereken
+1.  Neem kleine detectieframes op de gemeten haalbare frequentie en bereken
     luminantie (Y) van bemonsterde pixels.
 2.  Beperk de analyse tot de ingestelde ROI.
 3.  Verdeel de ROI in blokken en bereken per blok de gemiddelde
@@ -160,10 +153,11 @@ cameraframebuffer vasthouden of de detectietaak blokkeren.
     van de blokverschillen en compenseer deze common-mode verandering.
 6.  Verwerp een frame als waarschijnlijke lichtverandering wanneer een
     te groot deel van de ROI tegelijk en in dezelfde richting verandert.
-7.  Eis een ruimtelijk aaneengesloten cluster én een trigger in 2 van 3
-    opeenvolgende vergelijkingen.
-8.  Ga daarna naar EVENTMODUS, maak gedurende event_seconds JPEG’s met
-    event_fps en keer na cooldown terug naar detectie. Gebruik in v1
+7.  Eis een ruimtelijk aaneengesloten cluster en tijdbevestiging volgens
+    BOUWINSTRUCTIE.md. Framegaten mogen niet als continu bewijs tellen.
+8.  Maak na bevestiging een event met pretriggerbeelden en JPEG’s op
+    event_fps. Detectie blijft actief en beweging verlengt het event. Na
+    de maximale duur volgt zo nodig een aansluitend event; geen blinde cooldown. Gebruik in v1
     geen vast achtergrondreferentiebeeld. Buiten is frame-tot-frame
     vergelijking robuuster tegen bewolking, zon en schemering. Een
     adaptief achtergrondmodel kan later worden toegevoegd.
@@ -171,13 +165,14 @@ cameraframebuffer vasthouden of de detectietaak blokkeren.
 8. Event- en buffermodel
 
 Een event wordt uniek geïdentificeerd door (camera_id, boot_id,
-event_id). boot_id is een willekeurige 32-bit waarde per boot; event_id
-is een oplopende persistente teller.
+event_id). boot_id is een willekeurige 128-bit waarde per boot, weergegeven
+als 32 hextekens. Event_id is een oplopende teller binnen die boot; geen
+persistente NVS-schrijfactie per event.
 
   Veld          Type                 Voorbeeld
   ------------- -------------------- -----------------------------------
   camera_id     string               wildcam1
-  boot_id       uint32 hex           7fa31c09
+  boot_id       128-bit hex           7fa31c09000000000000000000000001
   event_id      uint64               1842
   frame_index   uint16               0..N-1
   capture_ms    uint64               milliseconden sinds boot
@@ -185,8 +180,9 @@ is een oplopende persistente teller.
   rssi          int                  -72
 
 Een queue-entry bezit een eigen kopie van de JPEG in PSRAM. Begrens op
-totaal aantal bytes. Startwaarde: maximaal circa 2,0 MiB JPEG-data,
-zodat camera en WiFi voldoende geheugen overhouden. Als een nieuwe JPEG
+totaal aantal bytes. Bepaal de limiet na meting van het totale geheugenbudget voor driver,
+decodering, pretriggerbuffer, upload, netwerk en veiligheidsmarge. Er is
+geen vaste reservering van 2 MiB. Zie BOUWINSTRUCTIE.md. Als een nieuwe JPEG
 niet past: frame laten vallen, dropped_frames verhogen en doorgaan.
 
 9. Protocol naar backend
@@ -195,7 +191,7 @@ niet past: frame laten vallen, dropped_frames verhogen en doorgaan.
 
     Content-Type: image/jpeg
     X-WildCam-ID: wildcam1
-    X-Boot-ID: 7fa31c09
+    X-Boot-ID: 7fa31c09000000000000000000000001
     X-Event-ID: 1842
     X-Frame-Index: 2
     X-Capture-Millis: 12345678
@@ -204,10 +200,14 @@ niet past: frame laten vallen, dropped_frames verhogen en doorgaan.
     X-Firmware-Version: 1.0.0
     X-Protocol-Version: 1
 
-Verwijder een frame pas uit de PSRAM-wachtrij na een 2xx-response. Retry
-netwerkfouten en 5xx met exponentiële backoff, bijvoorbeeld 1, 2, 5, 10,
-30 en maximaal 60 seconden. 4xx is een configuratie-/protocolfout en mag
-geen snelle retry-loop veroorzaken.
+Verwijder frames alleen na een geldige bevestiging of geregistreerde
+permanente afvoer. Exacte retry: 200; identiteitsconflict: 409. Netwerkfouten,
+408, 429 en 5xx: begrensde backoff. 401/403: upload pauzeren en fout melden.
+Overige permanente 4xx: item afvoeren en tellen, wachtrij niet blokkeren.
+
+De volledige vereiste headers, kloksemantiek, JSON-typen, eventafsluiting
+POST /api/v1/events/close en retryregels staan in BOUWINSTRUCTIE.md.
+Dat contract is normatief; het bovenstaande framevoorbeeld is illustratief.
 
 10. Lokale webinterface
 
@@ -235,14 +235,15 @@ geen snelle retry-loop veroorzaken.
 
 Teken de ROI als overlay op het livebeeld. Gebruik genormaliseerde
 ROI-coördinaten zodat dezelfde rechthoek klopt bij detectie- en
-JPEG-resolutie. Tijdens streaming mag de detectiefrequentie tijdelijk
-lager worden.
+JPEG-resolutie. Streaming mag de overeengekomen detectietiming niet overschrijden;
+verlaag of stop preview wanneer dat nodig is.
 
 11. Toestanden en foutafhandeling
 
     BOOT -> CAMERA_INIT -> WIFI_CONNECTING -> RUN
     RUN:
-      DETECTING --trigger--> CAPTURING_EVENT --klaar--> COOLDOWN --> DETECTING
+      DETECTING --trigger--> EVENT --rust--> DETECTING
+      Detectie blijft actief in EVENT; maxduur leidt zo nodig tot vervolgevent.
       uploadtaak draait parallel
       WiFi-uitval stopt detectie/opname niet
 
@@ -279,3 +280,10 @@ wijziging van het cameraprotocol.
 -   WiFi-herstel gebeurt automatisch.
 -   Code is modulair en README bevat build-, flash- en
     configuratiestappen.
+
+14. Aanvullende acceptatie versie 1.1
+
+BOUWINSTRUCTIE.md vervangt de eerdere vaste fps-/bevestigingskeuzes en
+definieert de passageproef, pretriggerdekking, maximale detectieonderbreking,
+telemetrie, bufferbezit, eventverlenging en gezamenlijke integratietests.
+De gebruiker heeft livebeeld bevestigd; detectieprestaties zijn nog niet bewezen.

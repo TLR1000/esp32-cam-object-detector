@@ -16,9 +16,11 @@ De browser toont MJPEG-livebeeld en kan een losse JPEG openen. Met PSRAM is de r
 
 - PlatformIO-build voor `esp32cam` succesvol met Espressif32 6.12.0 / Arduino ESP32 2.0.17.
 - Op 21 september 2026 succesvol geüpload via CP2102 op COM5 naar ESP32-D0WD revision 1.0; de uploader heeft de geschreven data geverifieerd.
-- De camera-initialisatie en het livebeeld moeten nog op de hardware worden gecontroleerd.
+- De gebruiker heeft werkend livebeeld via Skynet bevestigd. Detectieprestaties en vertraging zijn nog niet gemeten.
 
 ## Ontwerp en behuizing
+
+**Begin voor nieuwe bouwtaken bij [BOUWINSTRUCTIE.md](BOUWINSTRUCTIE.md)**. Versie 1.1 bepaalt de camera-architectuur, prestatieproef, frame- en API-contracten, eventafsluiting en taakverdeling. De firmware- en backendteksten zijn daarop bijgewerkt. De Word-bestanden blijven ongewijzigde historische versies 1.0.
 
 De genummerde documenten staan als Word-bestand en als leesbare tekst in de hoofdmap:
 
