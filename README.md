@@ -6,7 +6,9 @@ Project voor een AI-Thinker ESP32-CAM met OV2640-camera. Eerste stap: camerabeel
 
 De eerste sketch staat in [`camera-test`](camera-test/README.md), inclusief PlatformIO-configuratie, Arduino-sketch en aansluit-/flashinstructies.
 
-Na flashen: voeding uit, GPIO0-GND-jumper verwijderen en opnieuw inschakelen. Verbind met **WildCam-Test**, wachtwoord **camera-test-32**, en open **http://192.168.4.1/**. Dit wifi-netwerk biedt geen internet.
+Na flashen: voeding uit, GPIO0-GND-jumper verwijderen en opnieuw inschakelen. Met lokale wifi-instellingen in `camera-test/CameraTest/secrets.h` verbindt de camera met dat netwerk; open **http://wildcam-test.local/** of het IP-adres uit de seriële uitvoer. Deze instellingen blijven buiten Git.
+
+Zonder wifi-instellingen of bij een mislukte verbinding is het test-accesspoint beschikbaar: **WildCam-Test**, wachtwoord **camera-test-32**, pagina **http://192.168.4.1/**. Dit wifi-netwerk biedt geen internet. De bediening van versie 2 werkt zonder JavaScript.
 
 De browser toont MJPEG-livebeeld en kan een losse JPEG openen. Met PSRAM is de resolutie 800 × 600; zonder PSRAM 320 × 240. Gebruik voor de test één kijker tegelijk.
 

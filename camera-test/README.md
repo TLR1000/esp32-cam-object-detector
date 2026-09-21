@@ -1,14 +1,20 @@
-# Eerste sketch: camera via eigen wifi
+# Eerste sketch: camera via wifi
 
 Doel: beeld van de AI-Thinker ESP32-CAM met OV2640 beoordelen. Geen backend of bewegingsdetectie. MJPEG-livebeeld op 800 × 600 met PSRAM; zonder PSRAM 320 × 240. De witte flits-LED blijft uit.
 
 ## Gebruik na flashen
 
+Voor bestaande wifi: kopieer `CameraTest/secrets.example.h` naar `CameraTest/secrets.h` en vul de netwerkgegevens in voordat je bouwt. `secrets.h` blijft buiten Git. De lokale configuratie gebruikt Skynet. Na verbinden staat het IP-adres in de seriële uitvoer; open dat adres of **http://wildcam-test.local/** vanaf hetzelfde netwerk. Werkt de naam niet, gebruik het IP-adres.
+
+Zonder ingestelde netwerkgegevens, of wanneer verbinden binnen 20 seconden mislukt, start het onderstaande test-accesspoint. Bij ingestelde gegevens blijft de camera ook opnieuw proberen met het bestaande netwerk te verbinden.
+
 1. Schakel de voeding uit, verwijder de GPIO0-GND-jumper en schakel weer in.
 2. Verbind telefoon of laptop met **WildCam-Test**, wachtwoord **camera-test-32**.
 3. Blijf verbonden wanneer je apparaat meldt dat dit netwerk geen internet heeft.
 4. Open **http://192.168.4.1/**. Livebeeld start automatisch. Gebruik één kijker tegelijk.
-5. Met **Stop** stop je de stream; **Open foto** opent een JPEG in een nieuw tabblad.
+5. Met **Stop** stop je de stream; **Open foto** opent een JPEG in hetzelfde tabblad. Ga terug om weer live te kijken.
+
+Versie 2 gebruikt gewone HTML-formulieren voor Start en Stop, zonder JavaScript. De pagina bevat ook een link naar de directe MJPEG-stream op poort 81. Seriële logging meldt wanneer een kijker verbindt, het eerste frame is verstuurd en de verbinding sluit.
 
 Deze test heeft een vast wifi-wachtwoord, instelbaar in `CameraTest/config.h`. Wie met dit netwerk verbonden is kan het beeld bekijken. Voor een toekomstige installatie het wachtwoord aanpassen.
 

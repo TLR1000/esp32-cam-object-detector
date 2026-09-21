@@ -13,18 +13,30 @@ static const char PAGE[] PROGMEM = R"HTML(<!doctype html>
 body{font:18px system-ui;max-width:960px;margin:24px auto;padding:0 16px;background:#152025;color:#eef4f1}
 img{display:block;width:100%;min-height:180px;background:#000;margin:20px 0}button,a{font:inherit;margin-right:12px;color:inherit}button{background:#304b41;padding:10px;border:1px solid #789;border-radius:6px}
 </style><h1>WildCam cameratest</h1><p>Livebeeld van de ESP32-CAM. Gebruik voor deze test één kijker tegelijk.</p>
-<button onclick="start()">Start livebeeld</button><button onclick="stop()">Stop</button>
-<a href="/snapshot.jpg" target="_blank" onclick="stop()">Open foto</a><img id="cam" alt="Camerabeeld">
-<p id="status">Livebeeld starten...</p><script>
-const cam=document.getElementById('cam'),status=document.getElementById('status');
-function start(){cam.src='http://'+location.hostname+':81/stream?t='+Date.now();status.textContent='Livebeeld aangevraagd (800 × 600 met PSRAM).';}
-function stop(){cam.removeAttribute('src');status.textContent='Livebeeld gestopt.';}
-cam.onerror=()=>status.textContent='Geen beeld ontvangen. Controleer wifi en probeer Start livebeeld.';
-start();</script></html>)HTML";
+<form action="/" method="get">
+<button type="submit" name="live" value="1">Start livebeeld</button>
+<button type="submit" name="live" value="0">Stop</button>
+<a href="/snapshot.jpg">Open foto</a></form>
+%CAMERA_VIEW%
+<p>Geen bewegend beeld? Open de <a href="%STREAM_URL%">directe stream</a> in je gewone browser.</p>
+<p>Firmware: cameratest 2. Bediening werkt zonder JavaScript.</p></html>)HTML";
 
 static esp_err_t indexHandler(httpd_req_t *req) {
+  char query[64] = {}, live[8] = {};
+  bool playing = true;
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+      httpd_query_key_value(query, "live", live, sizeof(live)) == ESP_OK) {
+    playing = strcmp(live, "0") != 0;
+  }
+  const IPAddress address = WiFi.status() == WL_CONNECTED ? WiFi.localIP() : WiFi.softAPIP();
+  String streamUrl = "http://" + address.toString() + ":81/stream";
+  String page = PAGE;
+  String view = playing ? "<img alt=\"Live camerabeeld\" src=\"" + streamUrl + "\">" : "<p>Livebeeld gestopt.</p>";
+  page.replace("%CAMERA_VIEW%", view);
+  page.replace("%STREAM_URL%", streamUrl);
   httpd_resp_set_type(req, "text/html; charset=utf-8");
-  return httpd_resp_send(req, PAGE, HTTPD_RESP_USE_STRLEN);
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+  return httpd_resp_send(req, page.c_str(), page.length());
 }
 
 static esp_err_t snapshotHandler(httpd_req_t *req) {
@@ -38,6 +50,8 @@ static esp_err_t snapshotHandler(httpd_req_t *req) {
 }
 
 static esp_err_t streamHandler(httpd_req_t *req) {
+  Serial.println("Livebeeld: kijker verbonden");
+  unsigned frames = 0;
   esp_err_t result = httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=wildcamframe");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   while (result == ESP_OK) {
@@ -48,8 +62,10 @@ static esp_err_t streamHandler(httpd_req_t *req) {
     result = httpd_resp_send_chunk(req, header, length);
     if (result == ESP_OK) result = httpd_resp_send_chunk(req, reinterpret_cast<const char *>(fb->buf), fb->len);
     esp_camera_fb_return(fb);
+    if (result == ESP_OK && ++frames == 1) Serial.println("Livebeeld: eerste JPEG verzonden");
     delay(30);
   }
+  Serial.printf("Livebeeld: verbinding gesloten na %u frames\n", frames);
   return result;
 }
 
@@ -84,6 +100,7 @@ void setup() {
   if (strlen(WIFI_SSID)) {
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(CAMERA_HOSTNAME);
+    WiFi.setAutoReconnect(true);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     Serial.println("Verbinden met wifi (maximaal 20 seconden)...");
     unsigned long start = millis();
@@ -95,7 +112,7 @@ void setup() {
     Serial.printf("Open http://%s/\n", WiFi.localIP().toString().c_str());
     if (MDNS.begin(CAMERA_HOSTNAME)) MDNS.addService("http", "tcp", 80);
   } else {
-    WiFi.mode(WIFI_AP);
+    WiFi.mode(strlen(WIFI_SSID) ? WIFI_AP_STA : WIFI_AP);
     if (!WiFi.softAP(AP_SSID, AP_PASSWORD, 1, false, 2)) {
       Serial.println("FOUT: wifi-accesspoint starten mislukt");
       while (true) delay(1000);
@@ -119,4 +136,20 @@ void setup() {
   Serial.println("Gereed: webpagina op poort 80, MJPEG op poort 81.");
 }
 
-void loop() { delay(1000); }
+void loop() {
+  static bool wasConnected = false;
+  static unsigned long lastRetry = 0;
+  bool connected = WiFi.status() == WL_CONNECTED;
+  if (connected && !wasConnected) {
+    Serial.printf("Wifi verbonden. Open http://%s/ of http://%s.local/\n", WiFi.localIP().toString().c_str(), CAMERA_HOSTNAME);
+    MDNS.end();
+    if (MDNS.begin(CAMERA_HOSTNAME)) MDNS.addService("http", "tcp", 80);
+  }
+  if (!connected && strlen(WIFI_SSID) && millis() - lastRetry >= 30000) {
+    lastRetry = millis();
+    Serial.println("Wifi: opnieuw verbinden...");
+    WiFi.reconnect();
+  }
+  wasConnected = connected;
+  delay(1000);
+}
