@@ -1,6 +1,6 @@
 # ESP32-CAM Object Detector / WildCam
 
-Project voor een AI-Thinker ESP32-CAM met OV2640-camera: bewegingsdetectie op het apparaat en een backend (shoebox) voor opslag en latere dierherkenning.
+Deze repository bevat de software, het ontwerp en de hardwaredocumentatie waarmee een WildCam gebouwd wordt: een AI-Thinker ESP32-CAM met OV2640-camera die bewegingsdetectie op het apparaat doet, plus een backend (shoebox) voor opslag en latere dierherkenning. De WildCam zelf is het eindresultaat; dit is het bouwproject.
 
 ## Structuur
 
@@ -11,6 +11,15 @@ Project voor een AI-Thinker ESP32-CAM met OV2640-camera: bewegingsdetectie op he
 | [`WildCam/Copilot_version/`](WildCam/Copilot_version) | Firmwarevariant gemaakt met Copilot (`Cam_firmware_Copilot.ino`). |
 | [`hardware/`](hardware) | Foto's van de ESP32-CAM en de UART-aansluiting en het [aansluitschema](hardware/wiring-diagram.svg) (flashen via USB-voeding of met externe voeding). |
 | [`housing/`](housing) | Behuizingsontwerp (STL en 3DM). |
+
+## Hardware en flashen
+
+Het [aansluitschema](hardware/wiring-diagram.svg) toont twee varianten:
+
+- **A. USB-voeding (werkbank):** de CP2102 voedt de ESP32-CAM via zijn +5V-pin. Sluit dan geen externe voeding aan.
+- **B. Externe voeding:** 5 V gestabiliseerd, minimaal 1 A, op de 5V- en GND-pin van de camera. De +5V van de CP2102 blijft vrij; GND is gemeenschappelijk. Gebruik dit als de camera tijdens het flashen in brownout gaat.
+
+Flashen: verbind GPIO0 met GND, schakel de voeding in en upload met 115200 baud. Haal daarna de jumper weg en zet de voeding uit en weer aan. In normaal bedrijf is alleen een 5V-voeding nodig en is de CP2102 niet nodig. Details staan in ontwerpdocument 02 in [`WildCam/Design/`](WildCam/Design).
 
 ## Wifi-instellingen
 
