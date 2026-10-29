@@ -1,0 +1,31 @@
+name: Run PlatformIO Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install PlatformIO
+      run: pip install platformio
+      
+    - name: Flash ESP32-CAM board
+      run: |
+        pio run -t upload
+        
+    - name: Run tests
+      run: |
+        pio test --test-dir=test/test_motion
+      
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: firmware-build
+        path: Cam_firmware_Cline/.pio/
