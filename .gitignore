@@ -1,0 +1,13 @@
+# PlatformIO / tools
+.pio/
+.tools/
+.vscode/
+
+# Lokale wifi-instellingen en tokens
+secrets.h
+**/secrets.h
+!**/secrets.example.h
+
+# Overig
+*.gcode
+Thumbs.db
