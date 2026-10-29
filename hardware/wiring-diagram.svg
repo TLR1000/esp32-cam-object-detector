@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1190" width="900" height="1190" font-family="Segoe UI, Arial, sans-serif" font-size="14">
+  <title>ESP32-CAM aansluitschema: flashen via USB of met externe voeding</title>
+  <rect width="900" height="1190" fill="#ffffff"/>
+
+  <text x="450" y="32" text-anchor="middle" font-size="20" font-weight="bold" fill="#111">ESP32-CAM: aansluitschema</text>
+
+  <!-- ================= Variant A: USB-voeding (flashen op de werkbank) ================= -->
+  <g transform="translate(0,40)">
+    <text x="40" y="28" font-size="17" font-weight="bold" fill="#111">A. Flashen met USB-voeding (werkbank)</text>
+
+    <!-- CP2102 -->
+    <rect x="40" y="230" width="220" height="245" rx="8" fill="#eef3ff" stroke="#444" stroke-width="2"/>
+    <text x="150" y="256" text-anchor="middle" font-weight="bold" fill="#111">CP2102 USB-UART</text>
+    <text x="150" y="274" text-anchor="middle" fill="#333" font-size="13">voeding vanuit USB van de pc</text>
+    <g fill="#111">
+      <text x="60" y="304">3V3</text>
+      <text x="60" y="334">GND</text>
+      <text x="60" y="364">+5V</text>
+      <text x="60" y="394">TXD</text>
+      <text x="60" y="424">RXD</text>
+      <text x="60" y="454">DTR</text>
+    </g>
+    <text x="100" y="304" fill="#777" font-size="12">niet gebruikt</text>
+    <text x="100" y="454" fill="#777" font-size="12">niet gebruikt</text>
+    <circle cx="260" cy="300" r="5" fill="#999"/>
+    <circle cx="260" cy="330" r="5" fill="#111"/>
+    <circle cx="260" cy="360" r="5" fill="#c00"/>
+    <circle cx="260" cy="390" r="5" fill="#2a8a2a"/>
+    <circle cx="260" cy="420" r="5" fill="#1f5fbf"/>
+    <circle cx="260" cy="450" r="5" fill="#999"/>
+
+    <!-- ESP32-CAM -->
+    <rect x="640" y="50" width="220" height="440" rx="8" fill="#eaf7ea" stroke="#444" stroke-width="2"/>
+    <text x="750" y="76" text-anchor="middle" font-weight="bold" fill="#111">ESP32-CAM</text>
+    <text x="750" y="94" text-anchor="middle" fill="#333" font-size="13">(AI-Thinker, OV2640)</text>
+    <g fill="#111">
+      <text x="656" y="134">5V</text>
+      <text x="656" y="164">GND</text>
+      <text x="656" y="254">U0R / GPIO3</text>
+      <text x="656" y="314">U0T / GPIO1</text>
+      <text x="656" y="384">GPIO0</text>
+      <text x="656" y="434">GND</text>
+    </g>
+    <circle cx="640" cy="130" r="5" fill="#c00"/>
+    <circle cx="640" cy="160" r="5" fill="#111"/>
+    <circle cx="640" cy="250" r="5" fill="#2a8a2a"/>
+    <circle cx="640" cy="310" r="5" fill="#1f5fbf"/>
+    <circle cx="640" cy="380" r="5" fill="#e07b00"/>
+    <circle cx="640" cy="430" r="5" fill="#111"/>
+
+    <!-- Draden -->
+    <path d="M260 360 H380 V130 H640" stroke="#c00" stroke-width="3" fill="none"/>
+    <path d="M260 330 H340 V160 H372 a8 8 0 0 1 16 0 H640" stroke="#111" stroke-width="3" fill="none"/>
+    <path d="M260 390 H480 V250 H640" stroke="#2a8a2a" stroke-width="3" fill="none"/>
+    <path d="M260 420 H540 V310 H640" stroke="#1f5fbf" stroke-width="3" fill="none"/>
+    <path d="M640 380 H590 V430 H640" stroke="#e07b00" stroke-width="3" stroke-dasharray="8 5" fill="none"/>
+    <text x="656" y="464" fill="#e07b00" font-weight="bold" font-size="13">jumper GPIO0 – GND</text>
+    <text x="656" y="480" fill="#e07b00" font-size="12">(alleen flashen)</text>
+
+    <text x="392" y="124" fill="#c00" font-size="12">+5V</text>
+    <text x="520" y="154" fill="#111" font-size="12">GND</text>
+    <text x="560" y="244" text-anchor="middle" fill="#2a8a2a" font-size="12">TX → RX</text>
+    <text x="590" y="304" text-anchor="middle" fill="#1f5fbf" font-size="12">RX ← TX</text>
+
+    <!-- Waarschuwing -->
+    <rect x="40" y="62" width="280" height="136" rx="8" fill="#fff0f0" stroke="#c00" stroke-width="1.5"/>
+    <text x="54" y="86" fill="#c00" font-weight="bold">Geen externe voeding aansluiten</text>
+    <text x="54" y="108" fill="#333" font-size="13">De CP2102 voedt hier de 5V-pin.</text>
+    <text x="54" y="126" fill="#333" font-size="13">Sluit nooit tegelijk een externe</text>
+    <text x="54" y="144" fill="#333" font-size="13">5V-voeding aan: twee 5V-bronnen</text>
+    <text x="54" y="162" fill="#333" font-size="13">aan elkaar kan schade geven.</text>
+    <text x="54" y="186" fill="#333" font-size="13">Brownout bij upload? Gebruik B.</text>
+  </g>
+
+  <line x1="40" y1="590" x2="860" y2="590" stroke="#bbb" stroke-width="1.5" stroke-dasharray="6 6"/>
+
+  <!-- ================= Variant B: externe voeding ================= -->
+  <g transform="translate(0,600)">
+    <text x="40" y="28" font-size="17" font-weight="bold" fill="#111">B. Externe voeding</text>
+
+    <!-- Externe voeding -->
+    <rect x="40" y="60" width="180" height="120" rx="8" fill="#fff4e5" stroke="#444" stroke-width="2"/>
+    <text x="100" y="88" text-anchor="middle" font-weight="bold" fill="#111">Externe voeding</text>
+    <text x="100" y="108" text-anchor="middle" fill="#333" font-size="13">5 V gestabiliseerd</text>
+    <text x="100" y="126" text-anchor="middle" fill="#333" font-size="13">minimaal 1 A</text>
+    <text x="206" y="104" text-anchor="end" font-weight="bold" fill="#c00">+5V</text>
+    <text x="206" y="154" text-anchor="end" font-weight="bold" fill="#111">GND</text>
+    <circle cx="220" cy="100" r="5" fill="#c00"/>
+    <circle cx="220" cy="150" r="5" fill="#111"/>
+
+    <!-- CP2102 -->
+    <rect x="40" y="230" width="220" height="245" rx="8" fill="#eef3ff" stroke="#444" stroke-width="2"/>
+    <text x="150" y="256" text-anchor="middle" font-weight="bold" fill="#111">CP2102 USB-UART</text>
+    <text x="150" y="274" text-anchor="middle" fill="#333" font-size="13">alleen voor flashen/debug</text>
+    <g fill="#111">
+      <text x="60" y="304">3V3</text>
+      <text x="60" y="334">GND</text>
+      <text x="60" y="364">+5V</text>
+      <text x="60" y="394">TXD</text>
+      <text x="60" y="424">RXD</text>
+      <text x="60" y="454">DTR</text>
+    </g>
+    <text x="100" y="304" fill="#777" font-size="12">niet gebruikt</text>
+    <text x="100" y="364" fill="#c00" font-size="12" font-weight="bold">NIET aansluiten</text>
+    <text x="100" y="454" fill="#777" font-size="12">niet gebruikt</text>
+    <circle cx="260" cy="300" r="5" fill="#999"/>
+    <circle cx="260" cy="330" r="5" fill="#111"/>
+    <circle cx="260" cy="360" r="5" fill="#999"/>
+    <circle cx="260" cy="390" r="5" fill="#2a8a2a"/>
+    <circle cx="260" cy="420" r="5" fill="#1f5fbf"/>
+    <circle cx="260" cy="450" r="5" fill="#999"/>
+    <path d="M268 352 l16 16 M284 352 l-16 16" stroke="#c00" stroke-width="3" fill="none"/>
+
+    <!-- ESP32-CAM -->
+    <rect x="640" y="50" width="220" height="440" rx="8" fill="#eaf7ea" stroke="#444" stroke-width="2"/>
+    <text x="750" y="76" text-anchor="middle" font-weight="bold" fill="#111">ESP32-CAM</text>
+    <text x="750" y="94" text-anchor="middle" fill="#333" font-size="13">(AI-Thinker, OV2640)</text>
+    <g fill="#111">
+      <text x="656" y="134">5V</text>
+      <text x="656" y="164">GND</text>
+      <text x="656" y="254">U0R / GPIO3</text>
+      <text x="656" y="314">U0T / GPIO1</text>
+      <text x="656" y="384">GPIO0</text>
+      <text x="656" y="434">GND</text>
+    </g>
+    <circle cx="640" cy="130" r="5" fill="#c00"/>
+    <circle cx="640" cy="160" r="5" fill="#111"/>
+    <circle cx="640" cy="250" r="5" fill="#2a8a2a"/>
+    <circle cx="640" cy="310" r="5" fill="#1f5fbf"/>
+    <circle cx="640" cy="380" r="5" fill="#e07b00"/>
+    <circle cx="640" cy="430" r="5" fill="#111"/>
+
+    <!-- Draden -->
+    <path d="M220 100 H400 V130 H640" stroke="#c00" stroke-width="3" fill="none"/>
+    <path d="M220 150 H340 V160 H640" stroke="#111" stroke-width="3" fill="none"/>
+    <path d="M260 330 H420 V160" stroke="#111" stroke-width="3" fill="none"/>
+    <circle cx="420" cy="160" r="5" fill="#111"/>
+    <path d="M260 390 H480 V250 H640" stroke="#2a8a2a" stroke-width="3" fill="none"/>
+    <path d="M260 420 H540 V310 H640" stroke="#1f5fbf" stroke-width="3" fill="none"/>
+    <path d="M640 380 H590 V430 H640" stroke="#e07b00" stroke-width="3" stroke-dasharray="8 5" fill="none"/>
+    <text x="656" y="464" fill="#e07b00" font-weight="bold" font-size="13">jumper GPIO0 – GND</text>
+    <text x="656" y="480" fill="#e07b00" font-size="12">(alleen flashen)</text>
+
+    <text x="412" y="94" fill="#c00" font-size="12">+5V</text>
+    <text x="500" y="154" fill="#111" font-size="12">gemeenschappelijke GND</text>
+    <text x="560" y="244" text-anchor="middle" fill="#2a8a2a" font-size="12">TX → RX</text>
+    <text x="590" y="304" text-anchor="middle" fill="#1f5fbf" font-size="12">RX ← TX</text>
+  </g>
+
+  <!-- Toelichting -->
+  <g fill="#222" font-size="13">
+    <text x="40" y="1125" font-weight="bold">Opmerkingen</text>
+    <text x="40" y="1145">• Flashen: GPIO0 met GND verbinden, dan voeding inschakelen. Na upload jumper weg en power-cycle.</text>
+    <text x="40" y="1163">• Normaal bedrijf: alleen 5V en GND van een externe voeding, GPIO0 los. De CP2102 is dan niet nodig.</text>
+    <text x="40" y="1181">• Gebruik nooit twee 5V-bronnen tegelijk. De GND's zijn altijd gekoppeld. Seriële logica is 3,3 V.</text>
+  </g>
+</svg>
